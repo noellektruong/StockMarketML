@@ -1,0 +1,28 @@
+# Generated datasets
+hsy_mcd_2025.csv
+labeled_stock_data.csv
+stock_train.csv
+stock_test.csv
+stock_predictions.csv
+
+# Generated graphs
+*_actual_vs_predicted.png
+*_feature_coefficients.png
+prediction_errors.png
+model_comparison.png
+
+# Python cache
+__pycache__/
+*.py[cod]
+
+# Virtual environments
+venv/
+.venv/
+
+# Classroom database
+*.sqlite
+*.db
+
+# Credentials
+.env
+*credentials*.py
