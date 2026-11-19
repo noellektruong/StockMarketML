@@ -40,8 +40,11 @@ jobs:
         with:
           name: daily-kmeans-results
           path: |
+           path: |
             alpaca_hsy_mcd.csv
             kmeans_clustered_data.csv
             kmeans_market_clusters.png
+            kmeans_models.joblib
+            
           if-no-files-found: error
           retention-days: 30
