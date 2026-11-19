@@ -1,13 +1,16 @@
-﻿name: Weekly K-means Market Analysis
+
+name: Daily K-means Market Analysis
 
 on:
   schedule:
-    - cron: "0 15 * * 6"
+    - cron: "0 15 * * *"
+      timezone: "America/Chicago"
   workflow_dispatch:
 
 jobs:
   market-analysis:
     runs-on: ubuntu-latest
+    timeout-minutes: 5
 
     steps:
       - name: Check out repository
@@ -35,8 +38,9 @@ jobs:
       - name: Save analysis results
         uses: actions/upload-artifact@v4
         with:
-          name: weekly-kmeans-results
+          name: daily-kmeans-results
           path: |
+            alpaca_hsy_mcd.csv
             kmeans_clustered_data.csv
             kmeans_market_clusters.png
           if-no-files-found: error
