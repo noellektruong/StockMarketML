@@ -20,8 +20,8 @@ OUTPUT_FILE = "alpaca_hsy_mcd.csv"
 
 def main():
 
-    api_key = os.getenv("APCA_API_KEY_ID")
-    secret_key = os.getenv("APCA_API_SECRET_KEY")
+    api_key = os.getenv("APCA_API_KEY_ID", "").strip()
+    secret_key = os.getenv("APCA_API_SECRET_KEY", "").strip()
 
     if not api_key or not secret_key:
         raise ValueError(
