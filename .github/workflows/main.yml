@@ -28,33 +28,166 @@ jobs:
         with:
           python-version: "3.13"
 
-      - name: Install dependencies
+      - name: Initialize diagnostic logging
         run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements.txt
+          mkdir -p diagnostic_logs
+          echo "Workflow started: $(date -u)" | tee diagnostic_logs/workflow.log
+          echo "Trigger: $GITHUB_EVENT_NAME" | tee -a diagnostic_logs/workflow.log
+
+      - name: Install dependencies
+        id: dependencies
+        run: |
+          set -o pipefail
+          python -m pip install --upgrade pip 2>&1 | tee diagnostic_logs/install.log
+          pip install -r requirements.txt 2>&1 | tee -a diagnostic_logs/install.log
 
       - name: Download Alpaca market data
+        id: market_data
         env:
           APCA_API_KEY_ID: ${{ secrets.APCA_API_KEY_ID }}
           APCA_API_SECRET_KEY: ${{ secrets.APCA_API_SECRET_KEY }}
-        run: python fetch_data.py
+        run: |
+          set -o pipefail
+          python -u fetch_data.py 2>&1 | tee diagnostic_logs/fetch_data.log
 
       - name: Run K-means analysis
-        run: python kmeans_market_model.py
+        id: kmeans
+        run: |
+          set -o pipefail
+          python -u kmeans_market_model.py 2>&1 | tee diagnostic_logs/kmeans.log
 
       - name: Run daily virtual portfolio
-        run: python daily_simulator.py
+        id: simulator
+        run: |
+          set -o pipefail
+          python -u daily_simulator.py 2>&1 | tee diagnostic_logs/simulator.log
 
       - name: Generate portfolio report
-        run: python portfolio_report.py
+        id: report
+        run: |
+          set -o pipefail
+          python -u portfolio_report.py 2>&1 | tee diagnostic_logs/report.log
+
+      - name: Daily trading diagnostics
+        if: always()
+        env:
+          DEPENDENCIES: ${{ steps.dependencies.outcome }}
+          MARKET_DATA: ${{ steps.market_data.outcome }}
+          KMEANS: ${{ steps.kmeans.outcome }}
+          SIMULATOR: ${{ steps.simulator.outcome }}
+          REPORT: ${{ steps.report.outcome }}
+        run: |
+          {
+            echo "# Daily Virtual Portfolio Diagnostics"
+            echo ""
+            echo "**Date:** $(date -u)"
+            echo "**Trigger:** $GITHUB_EVENT_NAME"
+            echo ""
+            echo "## Workflow step results"
+            echo ""
+            echo "| Component | Result |"
+            echo "|---|---|"
+            echo "| Dependencies | $DEPENDENCIES |"
+            echo "| Alpaca market data | $MARKET_DATA |"
+            echo "| K-means analysis | $KMEANS |"
+            echo "| Virtual simulator | $SIMULATOR |"
+            echo "| Portfolio report | $REPORT |"
+            echo ""
+
+            echo "## Trading status"
+            echo ""
+
+            if [ "$SIMULATOR" != "success" ]; then
+              echo "❌ Simulator did not complete successfully."
+              echo "Check simulator.log for the failure reason."
+            elif [ -f diagnostic_logs/simulator.log ]; then
+              if grep -Eiq "no trades?|no trade executed|no qualifying signal|no orders?" diagnostic_logs/simulator.log; then
+                echo "⚠️ No-trade message detected in simulator output."
+                echo ""
+                echo "Possible reason reported by simulator:"
+                grep -Ein "no trades?|no trade executed|no qualifying signal|no orders?" diagnostic_logs/simulator.log || true
+              elif grep -Eiq "trade executed|order filled|buy order|sell order|filled" diagnostic_logs/simulator.log; then
+                echo "✅ Possible trade activity detected in simulator output."
+                echo "Verify fills and portfolio state for confirmation."
+              else
+                echo "❓ Simulator completed, but its output does not clearly identify whether a trade occurred."
+                echo "Add an explicit trading decision message to daily_simulator.py."
+              fi
+            else
+              echo "❓ Simulator log is missing."
+            fi
+
+            echo ""
+            echo "## Expected file checks"
+            echo ""
+
+            for file in \
+              portfolio_state.json \
+              alpaca_hsy_mcd.csv \
+              kmeans_clustered_data.csv \
+              kmeans_market_clusters.png
+            do
+              if [ -f "$file" ]; then
+                echo "✅ Found: $file"
+              else
+                echo "❌ Missing: $file"
+              fi
+            done
+
+            echo ""
+            echo "## Error detection"
+            echo ""
+
+            if [ "$DEPENDENCIES" != "success" ] || \
+               [ "$MARKET_DATA" != "success" ] || \
+               [ "$KMEANS" != "success" ] || \
+               [ "$SIMULATOR" != "success" ] || \
+               [ "$REPORT" != "success" ]; then
+              echo "❌ One or more workflow steps failed or did not run."
+              echo "Review the individual logs below."
+            else
+              echo "✅ All five main processing steps completed successfully."
+            fi
+
+            echo ""
+            echo "## Diagnostic log files"
+            echo ""
+            echo "Logs are included in the workflow artifacts."
+          } | tee -a "$GITHUB_STEP_SUMMARY"
+
+          echo ""
+          echo "===== SIMULATOR LOG ====="
+          if [ -f diagnostic_logs/simulator.log ]; then
+            tail -n 100 diagnostic_logs/simulator.log
+          else
+            echo "Simulator log unavailable."
+          fi
+
+          echo ""
+          echo "===== MARKET DATA LOG ====="
+          if [ -f diagnostic_logs/fetch_data.log ]; then
+            tail -n 50 diagnostic_logs/fetch_data.log
+          else
+            echo "Market data log unavailable."
+          fi
+
+          echo ""
+          echo "===== K-MEANS LOG ====="
+          if [ -f diagnostic_logs/kmeans.log ]; then
+            tail -n 50 diagnostic_logs/kmeans.log
+          else
+            echo "K-means log unavailable."
+          fi
 
       - name: Save virtual portfolio state to GitHub
+        if: always()
         uses: stefanzweifel/git-auto-commit-action@v5
         with:
           commit_message: "Update daily virtual portfolio"
           file_pattern: portfolio_state.json
 
       - name: Save daily reports
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: daily-virtual-portfolio
@@ -63,5 +196,6 @@ jobs:
             alpaca_hsy_mcd.csv
             kmeans_clustered_data.csv
             kmeans_market_clusters.png
-          if-no-files-found: error
+            diagnostic_logs/
+          if-no-files-found: warn
           retention-days: 90
