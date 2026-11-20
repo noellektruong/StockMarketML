@@ -1,16 +1,23 @@
 
-name: Daily K-means Market Analysis
+name: Daily K-means Virtual Portfolio
 
 on:
   schedule:
-    - cron: "0 15 * * *"
+    - cron: "15 15 * * *"
       timezone: "America/Chicago"
   workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: daily-virtual-portfolio
+  cancel-in-progress: false
 
 jobs:
   market-analysis:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 15
 
     steps:
       - name: Check out repository
@@ -35,16 +42,26 @@ jobs:
       - name: Run K-means analysis
         run: python kmeans_market_model.py
 
-      - name: Save analysis results
+      - name: Run daily virtual portfolio
+        run: python daily_simulator.py
+
+      - name: Generate portfolio report
+        run: python portfolio_report.py
+
+      - name: Save virtual portfolio state to GitHub
+        uses: stefanzweifel/git-auto-commit-action@v5
+        with:
+          commit_message: "Update daily virtual portfolio"
+          file_pattern: portfolio_state.json
+
+      - name: Save daily reports
         uses: actions/upload-artifact@v4
         with:
-          name: daily-kmeans-results
+          name: daily-virtual-portfolio
           path: |
-           path: |
+            portfolio_state.json
             alpaca_hsy_mcd.csv
             kmeans_clustered_data.csv
             kmeans_market_clusters.png
-            kmeans_models.joblib
-            
           if-no-files-found: error
-          retention-days: 30
+          retention-days: 90
